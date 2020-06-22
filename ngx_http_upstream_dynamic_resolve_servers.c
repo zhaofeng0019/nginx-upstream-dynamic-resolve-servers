@@ -75,8 +75,22 @@ typedef struct
     in_port_t port;
     ngx_event_t timer;
     ngx_int_t use_last;
-    ngx_http_upstream_init_peer_pt old_init;
+    ngx_http_upstream_init_peer_pt original_init_peer;
 } ngx_http_upstream_dynamic_resolve_server_conf_t;
+
+typedef struct
+{
+    ngx_http_upstream_dynamic_resolve_server_conf_t *dynamic_server;
+    void *data;
+    ngx_event_get_peer_pt original_get_peer;
+    ngx_event_free_peer_pt original_free_peer;
+
+#if (NGX_HTTP_SSL)
+    ngx_event_set_peer_session_pt original_set_session;
+    ngx_event_save_peer_session_pt original_save_session;
+#endif
+    ngx_http_upstream_dynamic_resolve_server_pool_node_t *pool_node;
+} ngx_http_upstream_dynamic_resolve_peer_data_t;
 
 static ngx_str_t ngx_http_upstream_dynamic_resolve_server_null_route =
     ngx_string("127.255.255.255");
@@ -97,6 +111,24 @@ static void
 ngx_http_upstream_dynamic_resolve_server_handler(ngx_resolver_ctx_t *ctx);
 
 static ngx_http_upstream_dynamic_resolve_server_conf_t *find_dynamic_server(ngx_http_upstream_srv_conf_t *us);
+static ngx_int_t
+ngx_http_upstream_init_dynamic_resolve_server_peer(ngx_http_request_t *r,
+                                                   ngx_http_upstream_srv_conf_t *us);
+
+static ngx_int_t ngx_http_upstream_get_dynamic_resolve_server_peer(ngx_peer_connection_t *pc,
+                                                                   void *data);
+
+static void ngx_http_upstream_free_dynamic_resolve_peer(ngx_peer_connection_t *pc,
+                                                        void *data, ngx_uint_t state);
+
+#if (NGX_HTTP_SSL)
+static ngx_int_t ngx_http_upstream_dynamic_resolve_set_session(
+    ngx_peer_connection_t *pc, void *data);
+static void ngx_http_upstream_dynamic_resolve_save_session(ngx_peer_connection_t *pc,
+                                                           void *data);
+#endif
+
+static void ngx_http_upstream_dynamic_resolve_servers_clean_up(void *data);
 
 static ngx_http_module_t ngx_http_upstream_dynamic_resolve_servers_module_ctx =
     {
@@ -153,17 +185,74 @@ static void ngx_http_upstream_dynamic_resolve_servers_clean_up(void *data)
 }
 
 static ngx_int_t
-ngx_http_upstream_dynamic_resolve_server_init(ngx_http_request_t *r,
-                                              ngx_http_upstream_srv_conf_t *us)
+ngx_http_upstream_init_dynamic_resolve_server_peer(ngx_http_request_t *r,
+                                                   ngx_http_upstream_srv_conf_t *us)
 {
     ngx_http_upstream_dynamic_resolve_server_conf_t *dynamic_server = find_dynamic_server(us);
     ngx_pool_cleanup_t *cleanup = ngx_pool_cleanup_add(r->pool, 0);
+    ngx_http_upstream_dynamic_resolve_peer_data_t *drp;
     cleanup->data = dynamic_server->cur_node;
     cleanup->handler = ngx_http_upstream_dynamic_resolve_servers_clean_up;
     dynamic_server->cur_node->refer_num++;
-    return dynamic_server->old_init(r, us);
+    if (dynamic_server->original_init_peer(r, us) != NGX_OK)
+    {
+        return NGX_ERROR;
+    }
+    *drp = ngx_palloc(r->pool, sizeof(ngx_http_upstream_dynamic_resolve_peer_data_t));
+    if (drp == NULL)
+    {
+        return NGX_ERROR;
+    }
+    drp->data = r->upstream->peer.data;
+    drp->original_get_peer = r->upstream->peer.get;
+    r->upstream->peer.get = ngx_http_upstream_get_dynamic_resolve_server_peer;
+    drp->original_free_peer = r->upstream->peer.free;
+    r->upstream->peer.free = ngx_http_upstream_free_dynamic_resolve_peer;
+    drp->dynamic_server = dynamic_server;
+    drp->pool_node = dynamic_server->cur_node;
+#if (NGX_HTTP_SSL)
+    drp->original_set_session = r->upstream->peer.set_session;
+    drp->original_save_session = r->upstream->peer.save_session;
+    r->upstream->peer.set_session = ngx_http_upstream_dynamic_resolve_set_session;
+    r->upstream->peer.save_session = ngx_http_upstream_dynamic_resolve_save_session;
+#endif
+    r->upstream->peer.data = drp;
+    return NGX_OK;
 }
 
+static ngx_int_t ngx_http_upstream_get_dynamic_resolve_server_peer(ngx_peer_connection_t *pc,
+                                                                   void *data)
+{
+    ngx_http_upstream_dynamic_resolve_peer_data_t *drp = data;
+    if (drp->dynamic_server->cur_node != drp->pool_node)
+    {
+        /* if get peer after dns updated the old backend maybe unusable, so return error in get_peer function to prevent send upstream request to the wrong backend */
+        return NGX_ERROR;
+    }
+    return drp->original_get_peer(pc, drp->data);
+}
+
+static void ngx_http_upstream_free_dynamic_resolve_peer(ngx_peer_connection_t *pc,
+                                                        void *data, ngx_uint_t state)
+{
+    ngx_http_upstream_dynamic_resolve_peer_data_t *drp = data;
+    drp->original_free_peer(pc, drp->data, state);
+}
+
+#if (NGX_HTTP_SSL)
+static ngx_int_t ngx_http_upstream_dynamic_resolve_set_session(
+    ngx_peer_connection_t *pc, void *data)
+{
+    ngx_http_upstream_dynamic_resolve_peer_data_t *drp = data;
+    return drp->original_set_session(pc, drp->data);
+}
+static void ngx_http_upstream_dynamic_resolve_save_session(ngx_peer_connection_t *pc,
+                                                           void *data)
+{
+    ngx_http_upstream_dynamic_resolve_peer_data_t *drp = data;
+    return drp->original_save_session(pc, drp->data);
+}
+#endif
 ngx_int_t ngx_http_upstream_dynamic_resolve_directive(
     ngx_conf_t *cf, ngx_http_upstream_server_t *us, ngx_uint_t *i)
 {
@@ -298,7 +387,7 @@ ngx_http_upstream_dynamic_resolve_servers_init_process(ngx_cycle_t *cycle)
         timer->log = cycle->log;
         timer->data = &dynamic_server[i];
         dynamic_server[i].server->name = dynamic_server->origin_url;
-        dynamic_server[i].old_init = dynamic_server[i].upstream_conf->peer.init;
+        dynamic_server[i].original_init_peer = dynamic_server[i].upstream_conf->peer.init;
         ngx_http_upstream_dynamic_resolve_server(timer);
     }
 
@@ -549,7 +638,7 @@ reinit_upstream:
                       "upstream after DNS changes");
     }
 
-    dynamic_server->upstream_conf->peer.init = ngx_http_upstream_dynamic_resolve_server_init;
+    dynamic_server->upstream_conf->peer.init = ngx_http_upstream_init_dynamic_resolve_server_peer;
 
     pool_queue = &dynamic_server->pool_queue;
 

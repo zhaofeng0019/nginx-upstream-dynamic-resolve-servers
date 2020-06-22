@@ -93,4 +93,4 @@ Basically, this module is using https://github.com/GUI/nginx-upstream-dynamic-se
 Not like a typical nginx third part module, to using this module, you may have to do some modification in native nginx code, trust me, it's harmless
 and just a little.
 
-Thanks for Nick Muerdter, Wandenberg Peixoto.
+Thanks for Nick Muerdter, Wandenberg Peixoto,Edward Riede.
