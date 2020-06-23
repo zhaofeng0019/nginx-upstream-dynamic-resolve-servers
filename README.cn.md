@@ -4,7 +4,7 @@
 
 一个可以在upstream块里动态解析域名的nginx模块
 
-默认情况下，nginx只会在启动的时候解析一次upstrem块里配置的域名。这个模块为`server`指令提供了`resolve`参数，可以异步解析upstream域名。如果你的upstream服务器的ip经常变动的化这个功能是非常有用的。另外，还提供了另外一个参数`use_last`，使用这个参数可以让nginx在dns解析超时的时候使用上一次的结果。
+默认情况下，nginx只会在启动的时候解析一次upstream块里配置的域名。这个模块为`server`指令提供了`resolve`参数，可以异步解析upstream域名。如果你的upstream服务器的ip经常变动的化这个功能是非常有用的。另外，还提供了另外一个参数`use_last`，使用这个参数可以让nginx在dns解析超时的时候使用上一次的结果。
 
 如果你的域名不能正确解析，通常情况下nginx不会正常启动，使用了这个模块之后(`server`指令后面加`resolve`,如果不加这个域名还是走原生的流程，不会动态解析)，我会在配置阶段把它替换成一个无用的ip，所以无需阻塞等待`ngx_parse_url`函数的返回值，无需担心，我会在进程的启动阶段把域名换回来并且进行动态解析。
 
@@ -14,9 +14,7 @@
 1. 和其它nginx第三方模块不同，在使用这个模块之前你需要对nginx原生代码进行一些修改。当然你也可以使用 https://github.com/GUI/nginx-upstream-dynamic-servers 里面的方式，也就是覆盖了原生的server指令，那样就不需要对原生的代码进行修改，只需要对我的代码做一点小改动就可以了(对比一下我代码里面的ngx_http_upstream_dynamic_resolve_directive函数和前面工程里的ngx_http_upstream_dynamic_server_directive函数)，但我觉得这样不是很好，如果原生代码的server指令发生了更改，比如增加了一些新的特性，你还要同步到自己的第三方模块里面。我改了函数名称和结构体名称只是符合我自己的命名品味。你也可以看我在前面工程里的PR https://github.com/GUI/nginx-upstream-dynamic-servers/pull/33
   不过只解决了内存的问题  
 
-2. 如果你在`server`指令中使用了太多的参数，你可能需要修改 `NGX_CONF_MAX_ARGS`  
-
-3. 这个模块在原生的upstream模块中可以正常使用，如果你使用了其它的第三方模块，你可能需要读一下源码并且考虑一下可行性  
+2. 这个模块在原生的upstream模块中可以正常使用，如果你使用了其它的第三方模块，你可能需要读一下源码并且考虑一下可行性  
 
 
 ## 安装 

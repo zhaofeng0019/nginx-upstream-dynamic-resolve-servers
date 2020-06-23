@@ -198,7 +198,7 @@ ngx_http_upstream_init_dynamic_resolve_server_peer(ngx_http_request_t *r,
     {
         return NGX_ERROR;
     }
-    *drp = ngx_palloc(r->pool, sizeof(ngx_http_upstream_dynamic_resolve_peer_data_t));
+    drp = ngx_palloc(r->pool, sizeof(ngx_http_upstream_dynamic_resolve_peer_data_t));
     if (drp == NULL)
     {
         return NGX_ERROR;
@@ -243,14 +243,12 @@ static void ngx_http_upstream_free_dynamic_resolve_peer(ngx_peer_connection_t *p
 static ngx_int_t ngx_http_upstream_dynamic_resolve_set_session(
     ngx_peer_connection_t *pc, void *data)
 {
-    ngx_http_upstream_dynamic_resolve_peer_data_t *drp = data;
-    return drp->original_set_session(pc, drp->data);
+    return NGX_OK;
 }
 static void ngx_http_upstream_dynamic_resolve_save_session(ngx_peer_connection_t *pc,
                                                            void *data)
 {
-    ngx_http_upstream_dynamic_resolve_peer_data_t *drp = data;
-    return drp->original_save_session(pc, drp->data);
+    return;
 }
 #endif
 ngx_int_t ngx_http_upstream_dynamic_resolve_directive(

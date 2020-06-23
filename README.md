@@ -12,9 +12,7 @@ Notice:
 1. Unlike other nginx modules, before you using this module, you should do some modification in the native nginx code. You can also use the origin way that https://github.com/GUI/nginx-upstream-dynamic-servers used, which is overwriting the native server directive that no need modification in the native code, by doing a little modification in my code (by compare the ngx_http_upstream_dynamic_resolve_directive in my code and ngx_http_upstream_dynamic_server_directive in previous project), but I think it's not convenient when original code changes. I change the names of the functions and structs in the previous project just for my owner taste.You can also see my pull request to the previous project https://github.com/GUI/nginx-upstream-dynamic-servers/pull/33  
   but it only solve the memory problem.
 
-2. If you use too much parameters in the `server` directive, you may should change the `NGX_CONF_MAX_ARGS`.
-
-3. This module works well with the native nginx upstream module. If you are using other nginx third party upstream modules, you may should read the code and think about it.
+2. This module works well with the native nginx upstream module. If you are using other nginx third party upstream modules, you may should read the code and think about it.
 
 ## Installation
 
