@@ -645,7 +645,7 @@ reinit_upstream:
                   "before insert",
                   &dynamic_server->host, dynamic_server->pool_queue_len);
 
-    for (p = pool_queue->next, n = p->next; p != pool_queue;
+    for (p = pool_queue->next, n = p->next; dynamic_server->pool_queue_len > 0 && p != pool_queue;
          p = n, n = n->next)
     {
         index++;
@@ -659,8 +659,10 @@ reinit_upstream:
                           "upstream-dynamic-servers: server '%V' %ith pool "
                           "will be destoried",
                           &dynamic_server->host, index);
-
-            ngx_destroy_pool(tmp_node->pool);
+            if (tmp_node->pool)
+            {
+                ngx_destroy_pool(tmp_node->pool);
+            }
             dynamic_server->pool_queue_len--;
         }
     }
