@@ -171,6 +171,7 @@ static ngx_http_upstream_dynamic_resolve_server_conf_t *find_dynamic_server(ngx_
     for (i = 0; i < udrsmcf->dynamic_servers.nelts; i++)
     {
         if (dynamic_server[i].upstream_conf == us)
+        /* find the first dynamic_server who's upstream_conf equal to us if you have more resolve option in one upstream, pool queue only use in this dynamic_server because all those dynamic_server share one us */
         {
             return &dynamic_server[i];
         }
@@ -295,7 +296,6 @@ ngx_int_t ngx_http_upstream_dynamic_resolve_directive(
         dynamic_server->host = u.host;
         dynamic_server->port = (in_port_t)(u.no_port ? u.default_port : u.port);
         dynamic_server->origin_url = u.url;
-        ngx_queue_init(&dynamic_server->pool_queue);
     }
 
     if (*i == cf->args->nelts - 1 ||
@@ -380,6 +380,7 @@ ngx_http_upstream_dynamic_resolve_servers_init_process(ngx_cycle_t *cycle)
     ngx_event_t *timer;
     for (i = 0; i < udrsmcf->dynamic_servers.nelts; i++)
     {
+        ngx_queue_init(&dynamic_server[i].pool_queue);
         timer = &dynamic_server[i].timer;
         timer->handler = ngx_http_upstream_dynamic_resolve_server;
         timer->log = cycle->log;
@@ -449,6 +450,7 @@ ngx_http_upstream_dynamic_resolve_server_handler(ngx_resolver_ctx_t *ctx)
         ngx_http_cycle_get_module_main_conf(
             ngx_cycle, ngx_http_upstream_dynamic_resolve_servers_module);
     ngx_http_upstream_dynamic_resolve_server_conf_t *dynamic_server;
+    ngx_http_upstream_dynamic_resolve_server_conf_t *_dynamic_server;
     ngx_conf_t cf;
     ngx_addr_t *addrs;
     ngx_pool_t *new_pool;
@@ -638,12 +640,14 @@ reinit_upstream:
 
     dynamic_server->upstream_conf->peer.init = ngx_http_upstream_init_dynamic_resolve_server_peer;
 
-    pool_queue = &dynamic_server->pool_queue;
+    _dynamic_server = find_dynamic_server(dynamic_server->upstream_conf);
+
+    pool_queue = &_dynamic_server->pool_queue;
 
     ngx_log_debug(NGX_LOG_DEBUG_CORE, ngx_cycle->log, 0,
-                  "upstream-dynamic-servers: server '%V' pool_queue_len is %i "
+                  "upstream-dynamic-servers: upstream host '%V' pool_queue_len is %i "
                   "before insert",
-                  &dynamic_server->host, dynamic_server->pool_queue_len);
+                  &_dynamic_server->upstream_conf->host, _dynamic_server->pool_queue_len);
 
     for (p = pool_queue->next, n = p->next; p != pool_queue;
          p = n, n = n->next)
@@ -656,18 +660,18 @@ reinit_upstream:
             ngx_queue_remove(p);
 
             ngx_log_debug(NGX_LOG_DEBUG_CORE, ngx_cycle->log, 0,
-                          "upstream-dynamic-servers: server '%V' %ith pool "
+                          "upstream-dynamic-servers: upstream host '%V' %ith pool "
                           "will be destoried",
-                          &dynamic_server->host, index);
+                          &_dynamic_server->upstream_conf->host, index);
 
             ngx_destroy_pool(tmp_node->pool);
-            dynamic_server->pool_queue_len--;
+            _dynamic_server->pool_queue_len--;
         }
     }
 
     ngx_queue_insert_tail(pool_queue, &pool_node->queue);
-    dynamic_server->cur_node = pool_node;
-    dynamic_server->pool_queue_len++;
+    _dynamic_server->cur_node = pool_node;
+    _dynamic_server->pool_queue_len++;
 
 end:
 
