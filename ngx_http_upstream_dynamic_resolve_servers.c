@@ -299,7 +299,7 @@ ngx_int_t ngx_http_upstream_dynamic_resolve_directive(
     }
 
     if (*i == cf->args->nelts - 1 ||
-        ngx_strncmp(value[(*i) + 1].data, "use_last", 8) != 0)
+        ngx_strncmp(value[(*i) + 1].data, "use_last", 8) != 0 || !dynamic_server)
     {
         return NGX_AGAIN;
     }
